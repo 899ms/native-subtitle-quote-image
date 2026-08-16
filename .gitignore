@@ -1,0 +1,11 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.mp4
+*.mov
+*.mkv
+*.webm
+band-preview.jpg
+final_contact_sheet.jpg
