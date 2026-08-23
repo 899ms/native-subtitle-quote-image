@@ -90,6 +90,8 @@ Three modes are supported:
 2. **Full URL mode**: use `yt-dlp` to obtain a video, metadata, and auxiliary timeline the user has the right to process, then choose a subtitle mode.
 3. **Content-production mode**: read the video, select topics, write an article or post, and create subtitle visuals. Upstream content Skills help with analysis; this Skill remains the source of truth for timestamps, real frames, subtitle-source labels, and QA.
 
+URL mode starts with a public request. If YouTube responds with “Sign in to confirm you’re not a bot,” an age check, or an access check for the user’s own non-public video, the agent must not misdiagnose the Skill as local-only. It should explain the error and ask whether `yt-dlp` may temporarily read the signed-in Chrome session. After approval, metadata, subtitle, and video commands for that URL all keep `--cookies-from-browser chrome`. Cookies are never exported, saved, uploaded, or committed.
+
 ### Component layers
 
 | Component | Local mode | URL mode | Role |
@@ -182,6 +184,17 @@ python3 skills/native-subtitle-quote-image/scripts/check_environment.py --url-mo
 ```
 
 The checker never installs or changes software. When something is missing, the agent should explain why it is needed and ask before installing it.
+
+If YouTube blocks the public request with a login check, use this only after the user explicitly approves Chrome Cookie access:
+
+```bash
+yt-dlp --cookies-from-browser chrome --js-runtimes node \
+  --no-playlist --skip-download \
+  --print "%(id)s | %(title)s | %(duration_string)s" \
+  "URL"
+```
+
+Keep `--cookies-from-browser chrome` on the same URL’s later `--list-subs`, subtitle-download, and video-download commands. See the [URL acquisition guide](skills/native-subtitle-quote-image/references/yt-dlp-and-transcripts.md#chrome-cookie-授权流程) for the permission boundary and failure handling.
 
 ### Other agents
 
