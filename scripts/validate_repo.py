@@ -17,7 +17,7 @@ README = ROOT / "README.md"
 README_EN = ROOT / "README_EN.md"
 PLUGIN = ROOT / ".codex-plugin" / "plugin.json"
 EXPECTED_NAME = "native-subtitle-quote-image"
-EXPECTED_VERSION = "1.2.0"
+EXPECTED_VERSION = "2.0.0"
 
 
 def main():
@@ -27,6 +27,8 @@ def main():
         README,
         README_EN,
         ROOT / "assets" / "native-subtitle-quote-image-icon.png",
+        ROOT / "examples" / "gallery" / "agi-capability-to-value.jpg",
+        ROOT / "examples" / "gallery" / "smaller-coding-models.jpg",
         PLUGIN,
         SKILL_FILE,
         OPENAI_YAML,
@@ -35,6 +37,7 @@ def main():
         ENV_CHECK,
         SKILL_DIR / "references" / "yt-dlp-and-transcripts.md",
         SKILL_DIR / "references" / "end-to-end-workflow.md",
+        SKILL_DIR / "references" / "visual-style.md",
         ROOT / ".github" / "workflows" / "validate.yml",
     ]
     for path in required:
@@ -73,6 +76,7 @@ def main():
     for reference in (
         "references/yt-dlp-and-transcripts.md",
         "references/end-to-end-workflow.md",
+        "references/visual-style.md",
     ):
         if reference not in skill_text:
             errors.append(f"SKILL.md 未链接参考文件: {reference}")
@@ -83,6 +87,7 @@ def main():
         SKILL_FILE,
         SKILL_DIR / "references" / "yt-dlp-and-transcripts.md",
         SKILL_DIR / "references" / "end-to-end-workflow.md",
+        SKILL_DIR / "references" / "visual-style.md",
     ]
     for document in public_docs:
         text = document.read_text(encoding="utf-8") if document.is_file() else ""
@@ -108,6 +113,10 @@ def main():
                 errors.append(f"{readme.name} 图片不存在: {source}")
     if "~/.codex/skills" not in readme_text:
         errors.append("README 缺少 Codex 默认 Skill 安装目录")
+    for document in (README, README_EN, SKILL_FILE):
+        text = document.read_text(encoding="utf-8") if document.is_file() else ""
+        if "render-script" not in text:
+            errors.append(f"{document.relative_to(ROOT)} 未说明脚本字幕模式")
 
     for script in (RENDERER, ENV_CHECK):
         if script.is_file():

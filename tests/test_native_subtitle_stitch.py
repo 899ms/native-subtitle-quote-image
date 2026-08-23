@@ -53,6 +53,51 @@ class HelperTests(unittest.TestCase):
         times = MODULE.build_focus_times([0, 2.7], 0.5, 3, 48)
         self.assertEqual(times, [0.0, 0.5, 2.2, 2.7])
 
+    def test_auto_layout_keeps_subtitle_strips_compact(self):
+        self.assertEqual(MODULE.choose_hero_fraction(4), 0.7)
+        self.assertEqual(MODULE.choose_hero_fraction(3), 0.775)
+        self.assertEqual(MODULE.choose_hero_fraction(2), 0.82)
+        self.assertEqual(MODULE.choose_hero_fraction(7), 0.48)
+        self.assertEqual(MODULE.choose_hero_fraction(4, 0.6), 0.6)
+
+    def test_script_lines_require_increasing_timestamps_and_text(self):
+        lines = MODULE.normalize_script_lines(
+            {
+                "lines": [
+                    {"t": 1, "text": "First"},
+                    {"t": 2, "text": "Second"},
+                ]
+            },
+            3,
+        )
+        self.assertEqual(lines[1]["text"], "Second")
+        with self.assertRaisesRegex(SystemExit, "严格递增"):
+            MODULE.normalize_script_lines(
+                {
+                    "lines": [
+                        {"t": 2, "text": "First"},
+                        {"t": 1, "text": "Second"},
+                    ]
+                },
+                3,
+            )
+        with self.assertRaisesRegex(SystemExit, "最多支持 7"):
+            MODULE.normalize_script_lines(
+                {
+                    "lines": [
+                        {"t": index / 10, "text": f"Line {index}"}
+                        for index in range(8)
+                    ]
+                },
+                3,
+            )
+
+    def test_cjk_detection_covers_chinese_japanese_and_korean(self):
+        self.assertTrue(MODULE.contains_cjk("中文"))
+        self.assertTrue(MODULE.contains_cjk("かな"))
+        self.assertTrue(MODULE.contains_cjk("한글"))
+        self.assertFalse(MODULE.contains_cjk("English"))
+
     def test_environment_check_local_mode_is_machine_readable(self):
         proc = subprocess.run(
             [sys.executable, str(ENV_SCRIPT), "--json"],
@@ -66,6 +111,7 @@ class HelperTests(unittest.TestCase):
         components = {item["component"] for item in payload["components"]}
         self.assertIn("Python 3.10+", components)
         self.assertIn("yt-dlp", components)
+        self.assertIn("CJK font", components)
 
     def test_render_one_has_requested_dimensions(self):
         frame = Image.new("RGB", (640, 360), "#336699")
@@ -85,6 +131,29 @@ class HelperTests(unittest.TestCase):
             )
             with Image.open(out) as rendered:
                 self.assertEqual(rendered.size, (300, 400))
+
+    def test_render_one_auto_layout_gives_hero_seventy_percent(self):
+        def fake_frame(_video, seconds):
+            color = "#cc0000" if seconds == 0 else "#0033cc"
+            return Image.new("RGB", (640, 360), color)
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            MODULE, "grab_frame", side_effect=fake_frame
+        ):
+            out = Path(tmp) / "auto-layout.jpg"
+            MODULE.render_one(
+                "unused.mp4",
+                [0, 1, 2, 3, 4],
+                out,
+                (3, 4),
+                300,
+                0.78,
+                0.96,
+                None,
+            )
+            with Image.open(out) as rendered:
+                self.assertGreater(rendered.getpixel((10, 279))[0], 180)
+                self.assertGreater(rendered.getpixel((10, 280))[2], 150)
 
     def test_missing_input_is_readable_without_traceback(self):
         proc = subprocess.run(
@@ -243,6 +312,44 @@ class CliIntegrationTests(unittest.TestCase):
             self.assertTrue((out_dir / "final_contact_sheet.jpg").is_file())
             self.assertTrue((out_dir / "原生字幕时间点.json").is_file())
             with Image.open(output) as rendered:
+                self.assertEqual(rendered.size, (300, 400))
+
+            script = tmp_path / "script.json"
+            script.write_text(
+                json.dumps(
+                    {
+                        "lines": [
+                            {"t": 0.5, "text": "First point"},
+                            {"t": 1.0, "text": "Second point"},
+                            {"t": 1.5, "text": "Third point"},
+                            {"t": 2.0, "text": "Fourth point"},
+                            {"t": 2.5, "text": "Fifth point"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            scripted_output = tmp_path / "scripted.jpg"
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "render-script",
+                    str(video),
+                    "--script",
+                    str(script),
+                    "--out",
+                    str(scripted_output),
+                    "--width",
+                    "300",
+                    "--font-size",
+                    "18",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            with Image.open(scripted_output) as rendered:
                 self.assertEqual(rendered.size, (300, 400))
 
             repeated = subprocess.run(

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""把带内嵌字幕的视频精确取帧并拼成原生字幕长图。"""
+"""把视频精确取帧并拼成字幕长图，支持烧录字幕与台词脚本两种模式。"""
 
 import argparse
 import json
@@ -12,7 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 try:
     import imageio_ffmpeg
@@ -127,6 +127,115 @@ def safe_title(value):
     return cleaned or "未命名"
 
 
+FONT_CANDIDATES = [
+    "/System/Library/Fonts/PingFang.ttc",
+    "/System/Library/Fonts/STHeiti Medium.ttc",
+    "/System/Library/Fonts/Hiragino Sans GB.ttc",
+    "C:/Windows/Fonts/msyh.ttc",
+    "C:/Windows/Fonts/simhei.ttf",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+]
+
+
+def contains_cjk(text):
+    ranges = (
+        ("\u1100", "\u11ff"),  # 谚文字母
+        ("\u3040", "\u30ff"),  # 平假名与片假名
+        ("\u3130", "\u318f"),  # 谚文兼容字母
+        ("\u3400", "\u9fff"),  # CJK 统一表意文字
+        ("\uac00", "\ud7af"),  # 谚文音节
+        ("\uf900", "\ufaff"),  # CJK 兼容表意文字
+        ("\uff66", "\uff9d"),  # 半角片假名
+    )
+    return any(start <= char <= end for char in text for start, end in ranges)
+
+
+def load_subtitle_font(path, size, text):
+    candidates = [path] if path else []
+    candidates.extend(FONT_CANDIDATES)
+    if not contains_cjk(text):
+        candidates.append("DejaVuSans.ttf")
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            return ImageFont.truetype(candidate, size)
+        except OSError:
+            continue
+    if contains_cjk(text):
+        raise SystemExit(
+            "找不到可用的中文字体；请安装中文字体或使用 --font 指定字体文件"
+        )
+    return ImageFont.load_default()
+
+
+def draw_scripted_subtitle(image, text, y_center, font_path, font_size, max_width):
+    draw = ImageDraw.Draw(image)
+    minimum = max(12, round(font_size * 0.55))
+    chosen = None
+    box = None
+    for size in range(font_size, minimum - 1, -2):
+        font = load_subtitle_font(font_path, size, text)
+        stroke = max(2, size // 14)
+        candidate_box = draw.textbbox(
+            (0, 0), text, font=font, stroke_width=stroke
+        )
+        if candidate_box[2] - candidate_box[0] <= max_width:
+            chosen = (font, stroke)
+            box = candidate_box
+            break
+    if chosen is None:
+        raise SystemExit(
+            f"台词过长，缩小到可读下限后仍放不下: {text!r}；请拆句或删减"
+        )
+    font, stroke = chosen
+    text_width = box[2] - box[0]
+    text_height = box[3] - box[1]
+    x = (image.width - text_width) // 2 - box[0]
+    y = y_center - text_height // 2 - box[1]
+    draw.text(
+        (x, y),
+        text,
+        font=font,
+        fill="white",
+        stroke_width=stroke,
+        stroke_fill="black",
+    )
+
+
+def normalize_script_lines(data, duration):
+    lines = data.get("lines") if isinstance(data, dict) else None
+    if not isinstance(lines, list) or len(lines) < 2:
+        raise SystemExit("台词脚本必须包含至少 2 项的 lines 数组")
+    if len(lines) > 7:
+        raise SystemExit("台词脚本最多支持 7 个时间点；请拆成多张图")
+    normalized = []
+    previous = -1.0
+    for index, item in enumerate(lines):
+        if not isinstance(item, dict):
+            raise SystemExit(f"lines[{index}] 必须是对象")
+        seconds = validate_time(item.get("t"), f"lines[{index}].t")
+        if seconds <= previous:
+            raise SystemExit("台词时间点必须严格递增")
+        if seconds >= duration:
+            raise SystemExit(
+                f"lines[{index}].t={seconds:.2f}s 必须小于视频时长 {duration:.2f}s"
+            )
+        raw_text = item.get("text")
+        if not isinstance(raw_text, str):
+            raise SystemExit(f"lines[{index}].text 必须是字符串")
+        text = raw_text.strip()
+        if not text:
+            raise SystemExit(f"lines[{index}].text 不能为空")
+        if "\n" in text or "\r" in text:
+            raise SystemExit(f"lines[{index}].text 必须是单行台词")
+        normalized.append({"t": seconds, "text": text})
+        previous = seconds
+    return normalized
+
+
 def normalize_times(values, label="时间点"):
     if not isinstance(values, list) or len(values) < 2:
         raise SystemExit(f"{label}必须是至少包含 2 项的数组")
@@ -157,13 +266,23 @@ def fit_lower(image, size, vertical=0.72):
     )
 
 
+def choose_hero_fraction(strip_count, requested=None):
+    """保持字幕条紧凑；台词较少时把多余高度留给主画面。"""
+    if strip_count <= 0:
+        raise SystemExit("至少需要 1 个字幕条")
+    if requested is not None:
+        return requested
+    return min(0.82, max(0.48, 1.0 - strip_count * 0.075))
+
+
 def render_one(video, times, out_path, aspect, out_width, top, bottom, hero_fraction):
     times = normalize_times(times)
     aw, ah = aspect
     out_height = round(out_width * ah / aw)
+    strip_count = len(times) - 1
+    hero_fraction = choose_hero_fraction(strip_count, hero_fraction)
     hero_height = round(out_height * hero_fraction)
     remaining = out_height - hero_height
-    strip_count = len(times) - 1
     base_strip = remaining // strip_count
     strip_heights = [base_strip] * strip_count
     strip_heights[-1] += remaining - sum(strip_heights)
@@ -193,6 +312,89 @@ def render_one(video, times, out_path, aspect, out_width, top, bottom, hero_frac
         y += strip.height
     canvas.save(out_path, quality=93, subsampling=0)
     print(f"完成: {out_path} ({out_width}x{out_height})")
+    print(
+        f"布局: 主画面 {hero_fraction:.1%}，"
+        f"字幕条 {strip_count} 个，条间距 0"
+    )
+
+
+def scripted_render_one(
+    video,
+    lines,
+    out_path,
+    aspect,
+    out_width,
+    band_center,
+    hero_fraction,
+    font_path,
+    font_size,
+):
+    aw, ah = aspect
+    out_height = round(out_width * ah / aw)
+    strip_count = len(lines) - 1
+    hero_fraction = choose_hero_fraction(strip_count, hero_fraction)
+    hero_height = round(out_height * hero_fraction)
+    remaining = out_height - hero_height
+    base_strip = remaining // strip_count
+    strip_heights = [base_strip] * strip_count
+    strip_heights[-1] += remaining - sum(strip_heights)
+    base_font = font_size or max(24, round(out_width / 18))
+
+    first_frame = grab_frame(video, lines[0]["t"])
+    hero = ImageOps.fit(
+        first_frame,
+        (out_width, hero_height),
+        method=Image.Resampling.LANCZOS,
+        centering=(0.5, 0.5),
+    )
+    first_strip_height = strip_heights[0]
+    draw_scripted_subtitle(
+        hero,
+        lines[0]["text"],
+        hero.height - first_strip_height // 2 - max(4, out_height // 150),
+        font_path,
+        min(base_font, max(16, round(first_strip_height * 0.62))),
+        round(out_width * 0.92),
+    )
+
+    strips = []
+    for line, strip_height in zip(lines[1:], strip_heights):
+        frame = grab_frame(video, line["t"])
+        source_height = max(
+            1, round(frame.width * strip_height / out_width)
+        )
+        source_height = min(source_height, frame.height)
+        center_y = round(frame.height * band_center)
+        y0 = max(0, min(frame.height - source_height, center_y - source_height // 2))
+        band = frame.crop((0, y0, frame.width, y0 + source_height))
+        strip = ImageOps.fit(
+            band,
+            (out_width, strip_height),
+            method=Image.Resampling.LANCZOS,
+            centering=(0.5, 0.5),
+        )
+        draw_scripted_subtitle(
+            strip,
+            line["text"],
+            strip.height // 2,
+            font_path,
+            min(base_font, max(16, round(strip.height * 0.62))),
+            round(out_width * 0.92),
+        )
+        strips.append(strip)
+
+    canvas = Image.new("RGB", (out_width, out_height), "black")
+    canvas.paste(hero, (0, 0))
+    y = hero_height
+    for strip in strips:
+        canvas.paste(strip, (0, y))
+        y += strip.height
+    canvas.save(out_path, quality=93, subsampling=0)
+    print(f"完成: {out_path} ({out_width}x{out_height})")
+    print(
+        f"脚本模式: 主画面 {hero_fraction:.1%}，"
+        f"字幕条 {strip_count} 个，条间距 0"
+    )
 
 
 def contact_sheet(paths, out_path, columns=4):
@@ -417,6 +619,37 @@ def command_render(args):
     print(f"总览图: {contact_target}")
 
 
+def command_render_script(args):
+    video = input_file(args.video, "视频")
+    script_path = input_file(args.script, "台词脚本")
+    _, _, duration = video_metadata(video)
+    try:
+        data = json.loads(script_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            f"台词脚本 JSON 格式错误（第 {exc.lineno} 行第 {exc.colno} 列）: "
+            f"{exc.msg}"
+        ) from None
+    lines = normalize_script_lines(data, duration)
+    out_path = Path(args.out).expanduser().resolve()
+    refuse_existing([out_path], args.overwrite)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    font_path = None
+    if args.font:
+        font_path = str(input_file(args.font, "字体"))
+    scripted_render_one(
+        video,
+        lines,
+        out_path,
+        args.aspect,
+        args.width,
+        args.band_center,
+        args.hero_fraction,
+        font_path,
+        args.font_size,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -450,7 +683,7 @@ def main():
     band = sub.add_parser("band", help="预览字幕裁切区域")
     band.add_argument("video")
     band.add_argument("-t", "--time", type=float, required=True)
-    band.add_argument("--band-top", type=float, default=0.68)
+    band.add_argument("--band-top", type=float, default=0.78)
     band.add_argument("--band-bottom", type=float, default=0.96)
     band.add_argument("--out", default="band-preview.jpg")
     band.add_argument("--overwrite", action="store_true")
@@ -462,19 +695,56 @@ def main():
     render.add_argument("--out-dir", required=True)
     render.add_argument("--aspect", type=parse_aspect, default=parse_aspect("3:4"))
     render.add_argument("--width", type=int, default=1440)
-    render.add_argument("--band-top", type=float, default=0.68)
+    render.add_argument("--band-top", type=float, default=0.78)
     render.add_argument("--band-bottom", type=float, default=0.96)
-    render.add_argument("--hero-fraction", type=float, default=0.42)
+    render.add_argument(
+        "--hero-fraction",
+        type=float,
+        help="主画面高度比例；默认按字幕条数量自动保持紧凑密度",
+    )
     render.add_argument("--overwrite", action="store_true")
     render.set_defaults(func=command_render)
+
+    scripted = sub.add_parser(
+        "render-script",
+        help="按时间点和台词 JSON 绘制紧凑字幕拼图",
+    )
+    scripted.add_argument("video")
+    scripted.add_argument("--script", required=True)
+    scripted.add_argument("--out", required=True)
+    scripted.add_argument("--aspect", type=parse_aspect, default=parse_aspect("3:4"))
+    scripted.add_argument("--width", type=int, default=1440)
+    scripted.add_argument(
+        "--band-center",
+        type=float,
+        default=0.88,
+        help="字幕条在源画面中的垂直中心比例（默认 0.88）",
+    )
+    scripted.add_argument(
+        "--hero-fraction",
+        type=float,
+        help="主画面高度比例；默认按台词数量自动保持紧凑密度",
+    )
+    scripted.add_argument("--font", help="中文字体文件；未指定时尝试系统字体")
+    scripted.add_argument("--font-size", type=int, help="基础字号，过长台词仍会自动缩小")
+    scripted.add_argument("--overwrite", action="store_true")
+    scripted.set_defaults(func=command_render_script)
 
     args = parser.parse_args()
     if hasattr(args, "band_top") and not 0 <= args.band_top < args.band_bottom <= 1:
         raise SystemExit("字幕区域必须满足 0 <= top < bottom <= 1")
     if getattr(args, "width", 1) <= 0:
         raise SystemExit("--width 必须为正数")
-    if hasattr(args, "hero_fraction") and not 0.25 <= args.hero_fraction <= 0.75:
-        raise SystemExit("--hero-fraction 必须在 0.25–0.75 之间")
+    if hasattr(args, "band_center") and not 0.1 <= args.band_center <= 0.98:
+        raise SystemExit("--band-center 必须在 0.10–0.98 之间")
+    if getattr(args, "font_size", None) is not None and args.font_size < 12:
+        raise SystemExit("--font-size 不能小于 12")
+    if (
+        hasattr(args, "hero_fraction")
+        and args.hero_fraction is not None
+        and not 0.25 <= args.hero_fraction <= 0.85
+    ):
+        raise SystemExit("--hero-fraction 必须在 0.25–0.85 之间")
     args.func(args)
 
 

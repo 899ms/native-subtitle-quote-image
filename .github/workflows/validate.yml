@@ -41,3 +41,4 @@ jobs:
           python skills/native-subtitle-quote-image/scripts/check_environment.py
           python skills/native-subtitle-quote-image/scripts/native_subtitle_stitch.py --help
           python skills/native-subtitle-quote-image/scripts/native_subtitle_stitch.py sample --help
+          python skills/native-subtitle-quote-image/scripts/native_subtitle_stitch.py render-script --help

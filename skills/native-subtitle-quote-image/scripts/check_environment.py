@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""检查原生字幕拼图核心模式与 URL 模式所需组件，不执行安装。"""
+"""检查视频字幕拼图的原生、脚本与 URL 模式所需组件，不执行安装。"""
 
 import argparse
 import importlib
@@ -8,6 +8,19 @@ import json
 import shutil
 import subprocess
 import sys
+from pathlib import Path
+
+
+CJK_FONT_CANDIDATES = [
+    "/System/Library/Fonts/PingFang.ttc",
+    "/System/Library/Fonts/STHeiti Medium.ttc",
+    "/System/Library/Fonts/Hiragino Sans GB.ttc",
+    "C:/Windows/Fonts/msyh.ttc",
+    "C:/Windows/Fonts/simhei.ttf",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+]
 
 
 def command_version(command, args=("--version",)):
@@ -89,6 +102,19 @@ def inspect_environment():
         ffmpeg_detail or "请安装 imageio-ffmpeg 或 FFmpeg 可执行文件",
     )
 
+    cjk_font = next(
+        (candidate for candidate in CJK_FONT_CANDIDATES if Path(candidate).is_file()),
+        None,
+    )
+    add(
+        rows,
+        "CJK font",
+        "ok" if cjk_font else "missing",
+        "脚本字幕模式：绘制中文、日文或韩文台词",
+        cjk_font or "未找到常见 CJK 字体；可安装 Noto Sans CJK 或用 --font 指定",
+        required="script",
+    )
+
     ytdlp_path, ytdlp_version = command_version("yt-dlp")
     add(
         rows,
@@ -104,7 +130,7 @@ def inspect_environment():
         ("Deno", "deno"),
         ("Node.js", "node"),
         ("QuickJS", "qjs"),
-        ("Bun", "bun"),
+        ("Bun (deprecated)", "bun"),
     ):
         path, version = command_version(command)
         if path:
@@ -113,6 +139,11 @@ def inspect_environment():
         label, command, path, version = runtimes[0]
         if command == "deno":
             detail = f"{label} {version} ({path})；yt-dlp 默认启用"
+        elif command == "bun":
+            detail = (
+                f"{label} {version} ({path})；调用 yt-dlp 时添加 "
+                "--js-runtimes bun；官方已将 Bun 支持标记为弃用"
+            )
         else:
             detail = (
                 f"{label} {version} ({path})；调用 yt-dlp 时添加 "
@@ -132,7 +163,7 @@ def inspect_environment():
             "JavaScript runtime",
             "missing",
             "URL 模式：完整解析 YouTube",
-            "推荐 Deno；也可使用 Node.js、QuickJS 或 Bun",
+            "推荐 Deno；也可使用 Node.js 或 QuickJS；Bun 支持已弃用",
             required="url",
         )
 
@@ -155,7 +186,17 @@ def inspect_environment():
     return rows
 
 
-def print_human(rows, url_mode):
+def is_blocking(row, url_mode, script_mode):
+    if row["status"] != "missing":
+        return False
+    return (
+        row["required"] == "core"
+        or (url_mode and row["required"] == "url")
+        or (script_mode and row["required"] == "script")
+    )
+
+
+def print_human(rows, url_mode, script_mode):
     labels = {"ok": "可用", "missing": "缺失", "optional": "可选"}
     widths = (26, 8, 38)
     print(f"{'组件':<{widths[0]}} {'状态':<{widths[1]}} 用途")
@@ -169,13 +210,10 @@ def print_human(rows, url_mode):
         if row["detail"]:
             print(f"  {row['detail']}")
 
-    blocking = [
-        row
-        for row in rows
-        if row["status"] == "missing"
-        and (row["required"] == "core" or (url_mode and row["required"] == "url"))
-    ]
-    mode = "URL 模式" if url_mode else "本地视频模式"
+    blocking = [row for row in rows if is_blocking(row, url_mode, script_mode)]
+    source = "URL" if url_mode else "本地视频"
+    subtitle = "脚本字幕" if script_mode else "原生字幕"
+    mode = f"{source} + {subtitle}模式"
     if blocking:
         print(f"\n{mode}尚不可用，缺少: " + ", ".join(row["component"] for row in blocking))
     else:
@@ -189,6 +227,11 @@ def main():
         action="store_true",
         help="把 yt-dlp 和 JavaScript runtime 也作为必需组件检查",
     )
+    parser.add_argument(
+        "--script-mode",
+        action="store_true",
+        help="把绘制中文台词所需的 CJK 字体也作为必需组件检查",
+    )
     parser.add_argument("--json", action="store_true", help="输出机器可读 JSON")
     args = parser.parse_args()
 
@@ -196,14 +239,14 @@ def main():
     blocking = [
         row
         for row in rows
-        if row["status"] == "missing"
-        and (row["required"] == "core" or (args.url_mode and row["required"] == "url"))
+        if is_blocking(row, args.url_mode, args.script_mode)
     ]
     if args.json:
         print(
             json.dumps(
                 {
                     "mode": "url" if args.url_mode else "local",
+                    "script_mode": args.script_mode,
                     "ok": not blocking,
                     "components": rows,
                 },
@@ -212,7 +255,7 @@ def main():
             )
         )
     else:
-        print_human(rows, args.url_mode)
+        print_human(rows, args.url_mode, args.script_mode)
     raise SystemExit(1 if blocking else 0)
 
 

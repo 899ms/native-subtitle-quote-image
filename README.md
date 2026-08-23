@@ -3,8 +3,8 @@
 
   <h1>原生字幕拼图</h1>
 
-  <p><strong>Native Subtitle Quote Image · 把视频内嵌字幕变成 3:4 社交长图</strong></p>
-  <p><em>保留原画面，也保留原字幕。</em></p>
+  <p><strong>Native Subtitle Quote Image · 把真实视频帧变成 3:4 字幕社交长图</strong></p>
+  <p><em>原生字幕不重绘；脚本字幕不冒充原字幕。</em></p>
 
   <p>中文 · <a href="README_EN.md">English</a></p>
 
@@ -23,6 +23,7 @@
 
   <p>
     <a href="#这是什么">这是什么</a> ·
+    <a href="#两种字幕模式">两种模式</a> ·
     <a href="#完整工作流">完整工作流</a> ·
     <a href="#demo">Demo</a> ·
     <a href="#安装">安装</a> ·
@@ -37,19 +38,29 @@
 
 ## 这是什么
 
-这是一个可直接安装到兼容 Agent 中的开放 Skill：它从本地视频或用户有权处理的在线视频开始，经过来源获取、文字稿定位、选题选句、精确取帧、裁切、拼图和逐张质检，把带有**画面内嵌字幕**的视频变成适合社交平台发布的 3:4 长图。
+这是一个可直接安装到兼容 Agent 中的开放 Skill：它从本地视频或用户有权处理的在线视频开始，经过来源获取、文字稿定位、选题选句、精确取帧、紧凑拼图和逐张质检，生成适合社交平台发布的 3:4 字幕长图。
 
-它不会 OCR 后重绘字幕，也不会翻译或覆盖文字。成品里的画面和字幕都来自原视频帧。
+它支持两种不混用的字幕模式：原生模式完全保留视频像素；脚本模式把已审核的时间点与台词绘制到真实视频帧上，并明确标识为后期字幕。
 
 仓库内包含：
 
 - 可复制到兼容 Agent 的独立 Skill；
 - 符合 Codex 插件结构的安装包；
 - `yt-dlp`、Deno/Node 和辅助文字时间轴的 URL 工作流；
-- 用文字稿选题、再回到真实视频帧校准字幕的完整方法；
+- 用文字稿选题、再回到真实视频帧校准画面和时间点的完整方法；
 - 自动生成带时间点的候选帧总览；
-- 生成字幕区域预览、聚焦候选帧、3:4 JPG、时间点清单和最终总览图的本地脚本；
+- 生成字幕区域预览、聚焦候选帧、原生字幕或脚本字幕 3:4 JPG、时间点清单和总览图的本地脚本；
+- 从高质量成品归纳出的紧凑版式规范，解决台词条过高、间隔过宽和主图不突出的问题；
 - 核心模式与 URL 模式的只读环境诊断。
+
+## 两种字幕模式
+
+| 模式 | 什么时候用 | 成品文字来源 | CLI |
+|---|---|---|---|
+| **原生字幕** | 关闭播放器 CC 后，字幕仍然直接存在于画面里；你要求保留原字幕 | 视频画面像素；不 OCR 重绘，不翻译改写 | `render` |
+| **脚本字幕** | 你要把已核对的台词、翻译或观点按案例版式绘制到真实视频帧上 | 已审核的 `lines[].text`；明确属于后期字幕 | `render-script` |
+
+如果用户要求原生字幕，但视频只有可开关的字幕轨，Agent 必须先说明限制；只有用户同意后，才能转脚本字幕模式。
 
 ## 完整工作流
 
@@ -58,24 +69,26 @@
         ↓
 yt-dlp 获取视频、元数据和辅助字幕轨（URL 模式）
         ↓
-确认字幕真的烧录在画面里
+检查真实帧，区分烧录字幕与独立字幕轨
         ↓
 字幕轨或 Whisper 建立带时间戳的内容索引（可选）
         ↓
 视频理解 / 选题 / 写作 Skill 提名主题（可选）
         ↓
-回到真实视频帧，校准每句字幕稳定出现的时间点
+锁定原生或脚本字幕模式
         ↓
-预览字幕区域 → manifest → 3:4 渲染 → 逐张 QA
+回到真实帧校准时间点和主画面
+        ↓
+manifest / lines JSON → 紧凑 3:4 渲染 → 逐张 QA
 ```
 
-这里最重要的边界是：**字幕轨和语音识别只负责理解、选题和定位；最终图片中的字必须来自视频画面本身。**
+这里最重要的边界是：**原生模式的字只能来自视频像素；脚本模式的字只能来自已审核 JSON，不得冒充原字幕。**
 
 Skill 支持三种工作模式：
 
-1. **本地成片模式**：视频已经下载，画面已有烧录字幕；不需要 `yt-dlp` 或 Whisper。
-2. **URL 完整模式**：使用 `yt-dlp` 获取用户有权处理的视频与时间轴，再确认烧录字幕、选句和出图。
-3. **内容生产模式**：完成“读视频 → 选题 → 写文章/帖子 → 原生字幕截图”；其他内容 Skill 作为上游，本 Skill 始终负责最终真实画面和质检。
+1. **本地成片模式**：直接从本地视频选句、取帧、出图；不需要 `yt-dlp`。
+2. **URL 完整模式**：使用 `yt-dlp` 获取用户有权处理的视频、元数据和辅助时间轴，再选择字幕模式。
+3. **内容生产模式**：完成“读视频 → 选题 → 写文章/帖子 → 字幕截图”；其他内容 Skill 作为上游，本 Skill 负责最终时间点、真实画面、字幕来源标识和质检。
 
 ### 组件分层
 
@@ -88,28 +101,41 @@ Skill 支持三种工作模式：
 | `yt-dlp` | 不需要 | 必需 | 获取在线视频、元数据和字幕轨 |
 | Deno；或显式启用 Node.js | 不需要 | YouTube 必需 | 完整解析 YouTube 格式 |
 | Whisper / 语音识别 Skill | 可选 | 可选 | 没有可用字幕轨时生成时间索引 |
+| CJK 字体 | 中日韩脚本模式必需 | 中日韩脚本模式必需 | 绘制中日韩台词；原生模式不需要 |
 | 选题、写作或视频理解 Skill | 可选 | 可选 | 从文字稿提名主题并生产配套内容 |
 
 详细说明：
 
 - [URL 获取、yt-dlp、Deno/Node 与文字时间轴](skills/native-subtitle-quote-image/references/yt-dlp-and-transcripts.md)
 - [从读视频、选题到交付的完整工作流](skills/native-subtitle-quote-image/references/end-to-end-workflow.md)
+- [紧凑型主图、字幕条密度与视觉质检](skills/native-subtitle-quote-image/references/visual-style.md)
 
 ## Demo
 
-下面两张图来自真实处理结果：第一张展示单张成品，第二张展示一次多图任务的成套输出。
+下面都是真实视频帧 + 已审核中文台词的**脚本字幕模式**案例。它们展示的是选帧、主图比例、台词条密度与视觉质检，不表示画面原本就带有这些中文字幕。
 
-### 单张拼图
+### 单张脚本字幕拼图
 
 <p align="center">
-  <img src="examples/demo-native-subtitle-collage.jpg" alt="原生字幕拼图单张 Demo" width="420">
+  <img src="examples/demo-native-subtitle-collage.jpg" alt="脚本字幕拼图单张 Demo" width="420">
 </p>
 
 ### 成套输出总览
 
 <p align="center">
-  <img src="examples/demo-output-overview.jpg" alt="原生字幕拼图成套输出总览" width="720">
+  <img src="examples/demo-output-overview.jpg" alt="视频字幕拼图成套输出总览" width="720">
 </p>
+
+### 更多完整案例
+
+下面两张保留原始 1080×1440 分辨率；README 只控制页面显示宽度，不缩小图片文件本身。
+
+<p align="center">
+  <img src="examples/gallery/agi-capability-to-value.jpg" alt="AI 能力正在变成价值的脚本字幕拼图案例" width="350">
+  <img src="examples/gallery/smaller-coding-models.jpg" alt="更小编程模型的脚本字幕拼图案例" width="350">
+</p>
+
+这些案例展示了不同场景下的同一原则：主画面保持主导，字幕条紧凑连续，台词之间不留大块无意义空间。默认 1 张主图 + 4 个台词条时，主图约占高度 70%，每条约占 7.5%，条间距为 0。
 
 > 示例图片只用于展示 Skill 的输出效果；图片及其中出现的第三方内容不属于本仓库 MIT License 的授权范围。
 
@@ -138,6 +164,12 @@ cp -R native-subtitle-quote-image/skills/native-subtitle-quote-image ~/.codex/sk
 ```bash
 python3 -m pip install -r skills/native-subtitle-quote-image/requirements.txt
 python3 skills/native-subtitle-quote-image/scripts/check_environment.py
+```
+
+如果要绘制中日韩台词，还应检查 CJK 字体：
+
+```bash
+python3 skills/native-subtitle-quote-image/scripts/check_environment.py --script-mode
 ```
 
 ### URL 模式
@@ -172,14 +204,20 @@ python3 skills/native-subtitle-quote-image/scripts/check_environment.py --url-mo
 需要配合内容生产时：
 
 ```text
-先根据视频文字稿提炼选题并写文章，再用 $native-subtitle-quote-image 为每个核心观点制作一张保留原字幕的配图；不要把文章文案画进图片。
+先根据视频文字稿提炼选题并写文章，再用 $native-subtitle-quote-image 为每个核心观点选真实视频帧并出图；先判断原生或脚本字幕模式，不要混用。
 ```
 
-Agent 会先检查字幕和裁切区域，再选择字幕稳定出现的时间点，最后生成：
+需要根据已核对台词生成和 Demo 相同的版式时：
+
+```text
+使用 $native-subtitle-quote-image 的脚本字幕模式，把这份带时间点的中文台词画到真实视频帧上，做成紧凑 3:4 长图并逐张质检。
+```
+
+Agent 会先检查来源、字幕类型和候选帧，明确模式后再生成：
 
 - 逐张 3:4 JPG；
-- `原生字幕时间点.json`；
-- `final_contact_sheet.jpg` 总览图。
+- 原生模式的 `原生字幕时间点.json`，或脚本模式的 `lines` JSON；
+- 多图任务的 `final_contact_sheet.jpg` 总览图。
 
 ### 本地脚本
 
@@ -190,7 +228,7 @@ python3 skills/native-subtitle-quote-image/scripts/native_subtitle_stitch.py sam
   --start 30 --end 120 --interval 5 --out candidate-contact-sheet.jpg
 ```
 
-不传 `--start`、`--end` 和 `--interval` 时，脚本会在整段视频中自动均匀抽取最多 24 帧。确认字幕区域和时间点后，再使用 `band` 与 `render`；完整参数可通过 `--help` 查看。
+不传 `--start`、`--end` 和 `--interval` 时，脚本会在整段视频中自动均匀抽取最多 24 帧。完整参数可通过 `--help` 查看。
 
 文字稿已经给出候选时间点时，围绕每个时间点生成前、中、后三帧，避免截到字幕切换瞬间：
 
@@ -200,23 +238,62 @@ python3 skills/native-subtitle-quote-image/scripts/native_subtitle_stitch.py sam
   --around 0.8 --out focused-candidates.jpg
 ```
 
+### 原生字幕渲染
+
+先用 `band` 确认字幕裁切区域，再用 manifest 渲染一组成品：
+
+```bash
+python3 skills/native-subtitle-quote-image/scripts/native_subtitle_stitch.py band VIDEO \
+  -t 61.2 --band-top 0.78 --band-bottom 0.96 --out band-preview.jpg
+
+python3 skills/native-subtitle-quote-image/scripts/native_subtitle_stitch.py render VIDEO \
+  --manifest manifest.json --out-dir output-v1 \
+  --aspect 3:4 --width 1440 \
+  --band-top 0.78 --band-bottom 0.96
+```
+
+### 脚本字幕渲染
+
+`script.json` 的每个 `text` 都必须是已复核的单行台词，`t` 是严格递增的真实时间点：
+
+```json
+{
+  "lines": [
+    {"t": 61.6, "text": "第一句已核对台词"},
+    {"t": 69.3, "text": "第二句已核对台词"},
+    {"t": 75.0, "text": "第三句已核对台词"},
+    {"t": 82.4, "text": "第四句已核对台词"},
+    {"t": 88.8, "text": "第五句已核对台词"}
+  ]
+}
+```
+
+```bash
+python3 skills/native-subtitle-quote-image/scripts/native_subtitle_stitch.py render-script VIDEO \
+  --script script.json --out output.jpg --aspect 3:4 --width 1440
+```
+
+脚本会尝试常见系统 CJK 字体；找不到时使用 `--font /path/to/font.ttc`。台词过长时拆句，不依靠过小字号硬塞。
+
+两种渲染器都会根据字幕条数量自动调整主图比例。常见的 1 张主图 + 4 个字幕条使用约 70% 的主图高度，并把条间距保持为 0；原生单行字幕默认从视频高度的 `0.78–0.96` 区域开始预览。详细规则见[紧凑型视觉规范](skills/native-subtitle-quote-image/references/visual-style.md)。
+
 脚本默认拒绝覆盖已有图片。确认需要替换当前输出时，显式添加 `--overwrite`。
 
 ## 判断边界
 
 ### 这个 Skill 适合什么视频？
 
-- 关闭播放器的 CC/字幕开关后，字幕仍然留在画面里；
-- 任意截取一帧，字幕会直接出现在图片像素中；
+- 原生模式：关闭播放器的 CC/字幕开关后，字幕仍然留在画面像素中；
+- 脚本模式：已有可复核的时间点和已审核台词，并需要在真实视频帧上后期绘制；
 - 使用者有权处理和发布输入视频及生成画面。
 
 ### 什么情况不适合？
 
-- 字幕可以单独关闭、切换语言或下载为 `.srt`；
-- 任务需要自动翻译、OCR 后改字或重新绘制字幕；
+- 用户要求原生字幕，但视频只有可单独关闭、切换或下载的字幕轨；
+- 脚本台词或翻译尚未复核，或希望 Agent 编造不在来源中的引语；
 - 需要把低清视频“增强”为真实高清画质。
 
-本 Skill 会保留原视频的画面与烧录字幕。外挂字幕合成、翻译和重绘属于不同工作流，不在这里混合实现。
+原生字幕与脚本字幕在本 Skill 中是两条明确分开的工作流。前者不改字，后者不冒充原字幕；两者都必须使用真实时间点并完成逐张视觉质检。
 
 ### 素材从哪里来？
 
@@ -229,6 +306,7 @@ python3 scripts/validate_repo.py
 python3 -m unittest discover -s tests -v
 python3 skills/native-subtitle-quote-image/scripts/check_environment.py
 python3 skills/native-subtitle-quote-image/scripts/native_subtitle_stitch.py --help
+python3 skills/native-subtitle-quote-image/scripts/native_subtitle_stitch.py render-script --help
 ```
 
 每次推送和 Pull Request 都会在 Python 3.10 与 3.13 环境中通过 GitHub Actions 自动运行检查。

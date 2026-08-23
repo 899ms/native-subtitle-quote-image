@@ -1,15 +1,15 @@
 # URL 获取与时间轴
 
-当输入是 YouTube 等在线视频链接，而不是本地视频时，读取本文件。`yt-dlp` 只负责获取用户有权处理的视频、元数据和字幕时间轴；最终图片仍由 `native_subtitle_stitch.py` 从视频像素取帧。
+当输入是 YouTube 等在线视频链接，而不是本地视频时，读取本文件。`yt-dlp` 只负责获取用户有权处理的视频、元数据和字幕时间轴；最终图片仍由 `native_subtitle_stitch.py` 从真实视频帧生成。
 
 ## 先区分两种“字幕”
 
-| 内容 | 用途 | 能否直接出现在最终图片中 |
-|---|---|---|
-| 画面内烧录字幕 | 最终成品的文字来源 | 可以，必须从真实视频帧保留 |
-| YouTube 字幕轨、VTT/SRT、Whisper 文字稿 | 理解内容、选题、定位时间点 | 不可以直接覆盖到成品上 |
+| 内容 | 用途 | 原生字幕模式 | 脚本字幕模式 |
+|---|---|---|---|
+| 画面内烧录字幕 | 保留原字幕 | 必须从真实视频帧保留 | 如与后期文字重叠，应换帧或换模式 |
+| YouTube 字幕轨、VTT/SRT、Whisper 文字稿 | 理解内容、选题、定位时间点 | 只做索引，不能画进成品 | 经复核后可写入 `lines[].text`，必须标记为后期台词 |
 
-有字幕轨不等于视频画面有字幕。下载后必须实际取帧检查；若画面没有烧录字幕，停止原生字幕工作流并向用户说明，可改用“重新绘制字幕”的另一套工作流，但不要在本 Skill 内偷偷切换。
+有字幕轨不等于视频画面有字幕。下载后必须实际取帧检查。若用户要求原生字幕，但画面没有烧录字幕，停止并说明；只有用户同意后，才使用本 Skill 的 `render-script` 模式，不要偷偷切换。
 
 ## 官方依据
 
@@ -17,7 +17,7 @@
 - [安装说明](https://github.com/yt-dlp/yt-dlp/wiki/Installation)
 - [External JavaScript 指南](https://github.com/yt-dlp/yt-dlp/wiki/EJS)
 
-yt-dlp 当前要求 Python 3.10+。完整 YouTube 支持强烈建议 FFmpeg、`yt-dlp-ejs` 和 JavaScript runtime。官方优先推荐 Deno；Node.js、QuickJS、Bun 也可用，但 Deno 之外的 runtime 需要通过 `--js-runtimes` 显式启用。
+yt-dlp 当前支持 CPython 3.10+ 和 PyPy 3.11+。完整 YouTube 支持强烈建议 FFmpeg、`yt-dlp-ejs` 和 JavaScript runtime。官方优先推荐 Deno，并默认启用它；Node.js 或 QuickJS 需要通过 `--js-runtimes` 显式启用。Bun 目前仍可用，但官方已将其支持标记为弃用，不应作为新环境首选。
 
 ## 环境检查
 
@@ -27,11 +27,18 @@ yt-dlp 当前要求 Python 3.10+。完整 YouTube 支持强烈建议 FFmpeg、`y
 python3 "<SKILL_DIR>/scripts/check_environment.py" --url-mode
 ```
 
+如果要绘制中日韩台词，同时检查 CJK 字体：
+
+```bash
+python3 "<SKILL_DIR>/scripts/check_environment.py" --url-mode --script-mode
+```
+
 它不会安装软件，只报告：
 
 - Python、Pillow、FFmpeg provider 是否可用；
 - `yt-dlp` 版本；
 - Deno 或其他 JavaScript runtime；
+- 脚本模式所需的 CJK 字体（使用 `--script-mode` 时）；
 - 可选的 Whisper/语音识别能力。
 
 缺少组件时先向用户说明，再取得安装授权。不要擅自修改系统 Python、包管理器或 shell 配置。
@@ -41,7 +48,7 @@ python3 "<SKILL_DIR>/scripts/check_environment.py" --url-mode
 - 核心渲染依赖：`python3 -m pip install -r "<SKILL_DIR>/requirements.txt"`。
 - yt-dlp 可使用官方独立可执行文件，或安装 PyPI 的 `yt-dlp[default]`；`default` extra 会带上官方推荐的 Python 依赖。
 - 官方文档当前建议普通用户使用 nightly；若稳定版遇到站点解析问题，先按官方说明更新 nightly，再判断是不是命令或权限问题。
-- Deno 使用官方安装方式；若环境已经有 Node.js，可保留 Node，并在每条 yt-dlp 命令中加入 `--js-runtimes node`。
+- Deno 使用官方安装方式，当前最低支持 2.3.0；若环境已有 Node.js 22+，可保留 Node，并在每条 yt-dlp 命令中加入 `--js-runtimes node`。
 
 示例（使用 pip 的环境）：
 
@@ -102,7 +109,7 @@ yt-dlp --no-playlist --skip-download \
   "URL"
 ```
 
-字幕轨只用来建立“内容—时间点”索引。不要把 VTT 文本直接画回最终图片，也不要因为文字稿里有一句话，就假设该时刻画面内的烧录字幕完全相同。
+字幕轨先用来建立“内容—时间点”索引。原生模式不把 VTT 画回图片，也不因为文字稿里有一句话，就假设该时刻画面内烧录字幕完全相同。脚本模式可以使用已复核的 VTT/SRT/Whisper 文字，但必须标明为后期绘制，并将人名、数字、专有名词和翻译含义单独核对。
 
 ### 4. 下载视频
 
@@ -126,7 +133,7 @@ yt-dlp --no-playlist \
 3. 如果画面本身有烧录字幕，可先用候选帧总览人工选句；
 4. 用户确实需要长视频的语义选段时，再询问是否允许使用本地 Whisper 或环境中已有的语音转写 Skill。
 
-Whisper 是可选上游，只为生成带时间戳文字稿。它的识别文本不能替代画面内原生字幕，时间点也必须回到视频帧验证。
+Whisper 是可选上游，用来生成带时间戳文字稿。它的识别文本不能替代画面内原生字幕；脚本模式需要使用它时，也必须先校对文本，并回到视频帧验证时间点。
 
 ## 登录、Cookies 与访问限制
 
@@ -154,7 +161,7 @@ yt-dlp --js-runtimes node ...
 
 ### 视频下载成功，但图片里没有字幕
 
-这是输入类型不符合本 Skill，而不是渲染失败。说明该视频只有独立字幕轨；若用户同意，转到重新绘制字幕的工作流。
+这不是取帧失败，而是原生字幕条件不成立。说明该视频只有独立字幕轨；若用户同意后期绘制，转用 `render-script`，否则停止。
 
 ### 下载很慢或中断
 
