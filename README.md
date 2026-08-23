@@ -90,6 +90,8 @@ Skill 支持三种工作模式：
 2. **URL 完整模式**：使用 `yt-dlp` 获取用户有权处理的视频、元数据和辅助时间轴，再选择字幕模式。
 3. **内容生产模式**：完成“读视频 → 选题 → 写文章/帖子 → 字幕截图”；其他内容 Skill 作为上游，本 Skill 负责最终时间点、真实画面、字幕来源标识和质检。
 
+URL 模式先尝试公开访问。若 YouTube 返回“登录以确认不是机器人”、年龄验证或用户自己的非公开视频限制，Agent 不应误判为“Skill 只能处理本地视频”，而应说明原因并询问是否允许 `yt-dlp` 临时读取 Chrome 的已登录 Cookie。用户授权后，元数据、字幕与视频下载命令统一添加 `--cookies-from-browser chrome`；Cookie 不导出、不保存、不上传，也不写入仓库。
+
 ### 组件分层
 
 | 组件 | 本地模式 | URL 模式 | 用途 |
@@ -182,6 +184,17 @@ python3 skills/native-subtitle-quote-image/scripts/check_environment.py --url-mo
 ```
 
 环境诊断不会自动安装或修改软件。缺少组件时，Agent 应先说明用途并取得授权。
+
+若公开请求被 YouTube 登录验证拦截，在用户明确授权后使用：
+
+```bash
+yt-dlp --cookies-from-browser chrome --js-runtimes node \
+  --no-playlist --skip-download \
+  --print "%(id)s | %(title)s | %(duration_string)s" \
+  "URL"
+```
+
+同一 URL 后续的 `--list-subs`、字幕下载和视频下载命令也要保留 `--cookies-from-browser chrome`。完整授权边界与故障处理见 [URL 获取参考](skills/native-subtitle-quote-image/references/yt-dlp-and-transcripts.md#chrome-cookie-授权流程)。
 
 ### 其他 Agent
 

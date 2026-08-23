@@ -2,6 +2,8 @@
 
 当输入是 YouTube 等在线视频链接，而不是本地视频时，读取本文件。`yt-dlp` 只负责获取用户有权处理的视频、元数据和字幕时间轴；最终图片仍由 `native_subtitle_stitch.py` 从真实视频帧生成。
 
+不要因为第一次公开请求被 YouTube 拒绝，就告诉用户“这个 Skill 只能读取本地视频”。URL 获取本来就是此 Skill 的正式入口：先尝试无 Cookie 公开访问；若命中登录或机器人验证，再走本文的 Chrome Cookie 授权流程。
+
 ## 先区分两种“字幕”
 
 | 内容 | 用途 | 原生字幕模式 | 脚本字幕模式 |
@@ -138,10 +140,57 @@ Whisper 是可选上游，用来生成带时间戳文字稿。它的识别文本
 ## 登录、Cookies 与访问限制
 
 - 只处理用户有权访问、下载和再利用的内容。
-- 遇到登录、年龄验证或用户自己的非公开视频时，先说明原因并取得授权，再考虑 `--cookies-from-browser`。
+- 先执行一次不带 Cookie 的元数据检查。不要把 Cookie 作为所有公开视频的默认参数。
+- 遇到 `Sign in to confirm you’re not a bot`、登录、年龄验证或用户自己的非公开视频时，不要退回“只能处理本地视频”；先说明原因并取得授权，再使用 `--cookies-from-browser chrome`。
 - 不要求用户粘贴账号密码，不导出或提交 Cookie 文件，不把浏览器配置、访问令牌或绝对路径写入仓库。
 - 不绕过 DRM、付费墙、地区限制或其他访问控制。
-- Cookies 失败时停止并报告，不要反复尝试多个浏览器账户。
+- Cookie 命令只用于当前来源获取，不得显示 Cookie 内容，也不得把 Cookie 写入日志、来源记录或交付物。
+- Cookies 失败时停止并报告，不要遍历或反复尝试多个浏览器账户。
+
+### Chrome Cookie 授权流程
+
+只在无 Cookie 请求明确被访问验证拦截后执行：
+
+1. 向用户复述真实错误，例如 YouTube 要求“登录以确认不是机器人”。
+2. 询问：`是否允许我让 yt-dlp 临时读取 Chrome 中已登录的 YouTube Cookie？它只用于获取这个链接的视频和字幕，不会导出、保存或上传 Cookie。`
+3. 用户明确同意后，把 `--cookies-from-browser chrome` 加到这个 URL 后续所有 yt-dlp 命令，而不是只加在第一次探测命令上。
+4. 默认只读 Chrome 当前默认配置。若机器上有多个 Chrome 配置且默认配置无效，停止并询问用户要使用哪个配置；不要自行扫描所有配置。
+5. 若用户拒绝，提供两种清晰选择：让用户自行下载视频后按本地模式继续，或结束 URL 任务。不要把这种受限后的备选说成 Skill 的固有限制。
+
+授权后的元数据检查：
+
+```bash
+yt-dlp --cookies-from-browser chrome --js-runtimes node \
+  --no-playlist --skip-download \
+  --print "%(id)s | %(title)s | %(channel)s | %(duration_string)s" \
+  "URL"
+```
+
+授权后的字幕轨检查与下载：
+
+```bash
+yt-dlp --cookies-from-browser chrome --js-runtimes node \
+  --no-playlist --list-subs "URL"
+
+yt-dlp --cookies-from-browser chrome --js-runtimes node \
+  --no-playlist --skip-download \
+  --write-subs --write-auto-subs \
+  --sub-langs "zh.*,en.*" --sub-format vtt \
+  -o "source/%(id)s/%(id)s.%(ext)s" \
+  "URL"
+```
+
+授权后的视频下载：
+
+```bash
+yt-dlp --cookies-from-browser chrome --js-runtimes node \
+  --no-playlist \
+  -f "bv*[height<=1080]+ba/b[height<=1080]" \
+  -o "source/%(id)s/%(id)s.%(ext)s" \
+  "URL"
+```
+
+如果环境使用 Deno，删除 `--js-runtimes node` 即可，Cookie 规则不变。若默认 Chrome 配置不含有效 YouTube 会话，可在用户明确指定配置后使用 yt-dlp 支持的 `chrome:PROFILE` 形式；不要猜测配置名。读取失败、系统钥匙串拒绝访问或站点仍拒绝请求时，只重试一次经过用户确认的同一配置，然后停止并报告具体错误。
 
 ## 常见故障
 
@@ -154,6 +203,10 @@ yt-dlp --js-runtimes node ...
 ```
 
 随后更新 yt-dlp。不要先改一串实验性 extractor 参数，因为这会让工作流难以复现。
+
+### YouTube 要求登录以确认不是机器人
+
+这是来源访问验证，不代表 Skill 只能处理本地视频。按“Chrome Cookie 授权流程”先取得用户授权，再让同一 URL 的元数据、字幕和视频命令都带上 `--cookies-from-browser chrome`。用户没有授权时才停止联网获取，并给出本地文件备选。
 
 ### 字幕语言下载不到
 

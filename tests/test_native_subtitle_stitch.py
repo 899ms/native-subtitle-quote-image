@@ -113,6 +113,16 @@ class HelperTests(unittest.TestCase):
         self.assertIn("yt-dlp", components)
         self.assertIn("CJK font", components)
 
+    def test_environment_check_url_mode_guides_cookie_recovery(self):
+        proc = subprocess.run(
+            [sys.executable, str(ENV_SCRIPT), "--url-mode"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertIn("不要退回本地模式", proc.stdout)
+        self.assertIn("--cookies-from-browser chrome", proc.stdout)
+
     def test_render_one_has_requested_dimensions(self):
         frame = Image.new("RGB", (640, 360), "#336699")
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(

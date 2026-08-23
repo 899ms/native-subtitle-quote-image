@@ -21,7 +21,7 @@ description: 将本地视频或用户有权处理的在线视频，经过来源�
 
 ## 按任务读参考文件
 
-- **YouTube 等 URL**：先读 [references/yt-dlp-and-transcripts.md](references/yt-dlp-and-transcripts.md)，获取用户有权处理的视频、元数据和辅助时间轴。
+- **YouTube 等 URL**：先读 [references/yt-dlp-and-transcripts.md](references/yt-dlp-and-transcripts.md)，获取用户有权处理的视频、元数据和辅助时间轴。URL 任务不能在一次公开请求失败后直接退回“只支持本地视频”：若 YouTube 返回机器人登录验证、年龄验证或用户自己的非公开视频限制，先说明原因并取得授权，再按参考文件用 `yt-dlp --cookies-from-browser chrome` 继续。
 - **读长视频 → 选题 → 写文章/帖子 → 配图**：读 [references/end-to-end-workflow.md](references/end-to-end-workflow.md)。
 - **台词条太高、间隔太宽、缺少美感**：读 [references/visual-style.md](references/visual-style.md)。
 - **本地短视频且时间点已确定**：直接执行下面的核心流程。
@@ -47,7 +47,7 @@ python3 "<SKILL_DIR>/scripts/check_environment.py" --url-mode --script-mode
 python3 -m pip install -r "<SKILL_DIR>/requirements.txt"
 ```
 
-不擅自修改系统 Python、shell 配置、浏览器 Cookies 或包管理器。
+不擅自修改系统 Python、shell 配置、浏览器 Cookies 或包管理器。Chrome Cookie 只是在无 Cookie 请求被 YouTube 登录验证拦截后的受控恢复路径；首次读取前必须说明用途并取得用户授权。
 
 ## 共同的默认版式
 
@@ -179,7 +179,7 @@ python3 "<SKILL_DIR>/scripts/native_subtitle_stitch.py" render-script VIDEO \
 - 脚本模式的台词或翻译尚未核对，或没有可用 CJK 字体。
 - 源画质、遮挡或 UI 严重到无法达到可读交付。
 
-登录或用户自己的非公开视频需要 Cookies 时，必须先取得授权；不索取密码、不导出 Cookie 文件、不把浏览器数据写入仓库。
+登录、年龄验证、机器人验证或用户自己的非公开视频需要 Cookies 时，必须先取得授权；授权后优先让 `yt-dlp` 通过 `--cookies-from-browser chrome` 临时读取用户自己的已登录会话，而不是让用户粘贴密码或导出 Cookie 文件。不得把浏览器数据写入仓库。
 
 ## 交付
 

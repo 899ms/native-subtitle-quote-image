@@ -218,6 +218,12 @@ def print_human(rows, url_mode, script_mode):
         print(f"\n{mode}尚不可用，缺少: " + ", ".join(row["component"] for row in blocking))
     else:
         print(f"\n{mode}环境检查通过。")
+    if url_mode:
+        print(
+            "提示：若 YouTube 返回登录或机器人验证，不要退回本地模式；"
+            "先取得用户授权，再在该 URL 的 yt-dlp 命令中添加 "
+            "--cookies-from-browser chrome。"
+        )
 
 
 def main():
