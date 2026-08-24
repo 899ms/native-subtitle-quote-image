@@ -27,11 +27,18 @@ class UpdateCheckTests(unittest.TestCase):
     def setUp(self):
         self.now = datetime(2026, 8, 24, 8, 0, tzinfo=timezone.utc)
 
-    def write_cache(self, path, version="9.9.9", age=timedelta(hours=1)):
+    def write_cache(
+        self,
+        path,
+        version="9.9.9",
+        age=timedelta(hours=1),
+        reference_time=None,
+    ):
+        reference_time = reference_time or self.now
         path.write_text(
             json.dumps(
                 {
-                    "checked_at": MODULE.format_timestamp(self.now - age),
+                    "checked_at": MODULE.format_timestamp(reference_time - age),
                     "latest_version": version,
                     "release_url": "https://example.test/release",
                 }
@@ -112,7 +119,11 @@ class UpdateCheckTests(unittest.TestCase):
     def test_cli_prints_cached_update_reminder(self):
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp) / "cache.json"
-            self.write_cache(cache)
+            self.write_cache(
+                cache,
+                age=timedelta(minutes=1),
+                reference_time=MODULE.utc_now(),
+            )
             environment = os.environ.copy()
             environment["NATIVE_SUBTITLE_UPDATE_CACHE"] = str(cache)
             proc = subprocess.run(
