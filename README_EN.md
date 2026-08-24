@@ -196,6 +196,25 @@ yt-dlp --cookies-from-browser chrome --js-runtimes node \
 
 Keep `--cookies-from-browser chrome` on the same URL’s later `--list-subs`, subtitle-download, and video-download commands. See the [URL acquisition guide](skills/native-subtitle-quote-image/references/yt-dlp-and-transcripts.md#chrome-cookie-授权流程) for the permission boundary and failure handling.
 
+### Update reminders
+
+At the start of each new task, the Skill runs a non-blocking version check. The checker reads the installed version from the Skill’s own `VERSION` file and compares it with this project’s latest GitHub Release:
+
+```bash
+python3 skills/native-subtitle-quote-image/scripts/check_update.py --json
+```
+
+- A successful check is cached for 24 hours, so normal use does not contact GitHub every time.
+- When a newer release exists, the agent only reports the versions and Release link. It never overwrites the installed Skill.
+- Network failures, GitHub outages, or denied network access never block the requested video task.
+- The cache stores only the check time, latest version, and Release link—never account details, source media, or usage history.
+
+To bypass the cache and check immediately:
+
+```bash
+python3 skills/native-subtitle-quote-image/scripts/check_update.py --force --verbose
+```
+
 ### Other agents
 
 The Skill uses the open Agent Skills directory format. Copy `skills/native-subtitle-quote-image/` into the Skills directory supported by your agent and follow that agent's activation instructions.

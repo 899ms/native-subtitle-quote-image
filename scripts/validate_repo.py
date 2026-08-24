@@ -13,11 +13,13 @@ SKILL_FILE = SKILL_DIR / "SKILL.md"
 OPENAI_YAML = SKILL_DIR / "agents" / "openai.yaml"
 RENDERER = SKILL_DIR / "scripts" / "native_subtitle_stitch.py"
 ENV_CHECK = SKILL_DIR / "scripts" / "check_environment.py"
+UPDATE_CHECK = SKILL_DIR / "scripts" / "check_update.py"
+VERSION_FILE = SKILL_DIR / "VERSION"
 README = ROOT / "README.md"
 README_EN = ROOT / "README_EN.md"
 PLUGIN = ROOT / ".codex-plugin" / "plugin.json"
 EXPECTED_NAME = "native-subtitle-quote-image"
-EXPECTED_VERSION = "2.1.0"
+EXPECTED_VERSION = "2.1.1"
 
 
 def main():
@@ -31,10 +33,12 @@ def main():
         ROOT / "examples" / "gallery" / "smaller-coding-models.jpg",
         PLUGIN,
         SKILL_FILE,
+        VERSION_FILE,
         OPENAI_YAML,
         SKILL_DIR / "requirements.txt",
         RENDERER,
         ENV_CHECK,
+        UPDATE_CHECK,
         SKILL_DIR / "references" / "yt-dlp-and-transcripts.md",
         SKILL_DIR / "references" / "end-to-end-workflow.md",
         SKILL_DIR / "references" / "visual-style.md",
@@ -57,6 +61,13 @@ def main():
         )
     if plugin.get("skills") != "./skills/":
         errors.append("plugin.json skills 必须指向 ./skills/")
+
+    if VERSION_FILE.is_file():
+        skill_version = VERSION_FILE.read_text(encoding="utf-8").strip()
+        if skill_version != EXPECTED_VERSION:
+            errors.append(
+                f"Skill VERSION 应为 {EXPECTED_VERSION}，实际为 {skill_version}"
+            )
 
     skill_text = SKILL_FILE.read_text(encoding="utf-8") if SKILL_FILE.is_file() else ""
     frontmatter = re.match(r"\A---\n(.*?)\n---\n", skill_text, flags=re.DOTALL)
@@ -118,7 +129,7 @@ def main():
         if "render-script" not in text:
             errors.append(f"{document.relative_to(ROOT)} 未说明脚本字幕模式")
 
-    for script in (RENDERER, ENV_CHECK):
+    for script in (RENDERER, ENV_CHECK, UPDATE_CHECK):
         if script.is_file():
             try:
                 compile(script.read_text(encoding="utf-8"), str(script), "exec")
@@ -130,6 +141,8 @@ def main():
         OPENAI_YAML,
         RENDERER,
         ENV_CHECK,
+        UPDATE_CHECK,
+        VERSION_FILE,
         PLUGIN,
     ]
     for path in public_text_files:

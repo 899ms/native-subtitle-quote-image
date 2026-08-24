@@ -196,6 +196,25 @@ yt-dlp --cookies-from-browser chrome --js-runtimes node \
 
 同一 URL 后续的 `--list-subs`、字幕下载和视频下载命令也要保留 `--cookies-from-browser chrome`。完整授权边界与故障处理见 [URL 获取参考](skills/native-subtitle-quote-image/references/yt-dlp-and-transcripts.md#chrome-cookie-授权流程)。
 
+### 更新提醒
+
+Skill 每个新任务开始时会运行一次非阻塞版本检查。检查器从 Skill 自带的 `VERSION` 读取本地版本，并与本项目的 GitHub Latest Release 比较：
+
+```bash
+python3 skills/native-subtitle-quote-image/scripts/check_update.py --json
+```
+
+- 默认 24 小时内复用缓存，不会每次使用都联网。
+- 发现新版时只提醒版本号和 Release 链接，不会自动覆盖用户的本地 Skill。
+- 断网、GitHub 不可用或用户拒绝联网时，继续原任务。
+- 缓存只保存检查时间、最新版本号和 Release 链接，不包含账号、素材或使用记录。
+
+用户需要立即重新检查时，可以运行：
+
+```bash
+python3 skills/native-subtitle-quote-image/scripts/check_update.py --force --verbose
+```
+
 ### 其他 Agent
 
 该 Skill 使用开放的 Agent Skills 目录格式。把 `skills/native-subtitle-quote-image/` 复制到目标 Agent 支持的 Skills 目录；具体目录和启用方式以目标 Agent 的说明为准。
